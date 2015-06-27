@@ -1,0 +1,91 @@
+server {
+	listen 80 default_server;
+	listen [::]:80 default_server ipv6only=on;
+
+	root /var/www/html;
+	index index.php index.html index.htm;
+
+
+	server_name brandonphuong.net;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass unix:/var/run/php5-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    location var/www/html/mediawiki/ {
+        try_files $uri $uri/ @mediawiki;
+        
+        # Do this inside of a location so it can be negated
+        location ~ \.php$ {
+            try_files $uri $uri/ =404; # Don't let php execute non-existent php files
+            include /etc/nginx/fastcgi_params;
+            fastcgi_pass 127.0.0.1:9000;
+        }
+    }
+    
+    location var/www/html/mediawiki/images {
+        # Separate location for images/ so .php execution won't apply
+        
+        location ~ ^/mediawiki/images/thumb/(archive/)?[0-9a-f]/[0-9a-f][0-9a-f]/([^/]+)/([0-9]+)px-.*$ {
+            # Thumbnail handler for MediaWiki
+            # This location only matches on a thumbnail's url
+            # If the file does not exist we use @thumb to run the thumb.php script
+            try_files $uri $uri/ @thumb;
+        }
+    }
+    location var/www/html/mediawiki/images/deleted {
+        # Deny access to deleted images folder
+        deny    all;
+    }
+    
+    # Deny access to folders MediaWiki has a .htaccess deny in
+    location var/www/html/mediawiki/cache       { deny all; }
+    location var/www/html/mediawiki/languages   { deny all; }
+    location var/www/html/mediawiki/maintenance { deny all; }
+    location var/www/html/mediawiki/serialized  { deny all; }
+    
+    # Just in case, hide .svn and .git too
+    location ~ /.(svn|git)(/|$) { deny all; }
+    
+    # Hide any .htaccess files
+    location ~ /.ht { deny all; }
+    
+    # Uncomment the following code if you wish to hide the installer/updater
+    ## Deny access to the installer
+    #location /mediawiki/mw-config { deny all; }
+    
+    # Handling for the article path
+    location @mediawiki {
+        include /etc/nginx/fastcgi_params;
+        # article path should always be passed to index.php
+        fastcgi_param SCRIPT_FILENAME   $document_root/mediawiki/index.php;
+        fastcgi_pass  127.0.0.1:9000;
+    }
+    
+    # Thumbnail 404 handler, only called by try_files when a thumbnail does not exist
+    location @thumb {
+        # Do a rewrite here so that thumb.php gets the correct arguments
+        rewrite ^/mediawiki/images/thumb/[0-9a-f]/[0-9a-f][0-9a-f]/([^/]+)/([0-9]+)px-.*$ /mediawiki/thumb.php?f=$1&width=$2;
+        rewrite ^/mediawiki/images/thumb/archive/[0-9a-f]/[0-9a-f][0-9a-f]/([^/]+)/([0-9]+)px-.*$ /mediawiki/thumb.php?f=$1&width=$2&archived=1;
+        
+        # Run the thumb.php script
+        include /etc/nginx/fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME   $document_root/mediawiki/thumb.php;
+        fastcgi_pass  127.0.0.1:9000;
+    
+}
+
